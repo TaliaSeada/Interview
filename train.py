@@ -112,7 +112,7 @@ def feature_engineering(df):
 
     df['FamilySize'] = (df['SibSp'] + df['Parch'] + 1)
 
-    df = df.drop(['PassengerId', 'Name', 'Ticket', 'Cabin'], axis=1)
+    df = df.drop(['PassengerId', 'Name', 'Ticket', 'Cabin', 'SibSp', 'Parch'], axis=1)
 
     return df
 
@@ -134,7 +134,7 @@ def download_titanic():
 
 def build_preprocessor():
     numeric_features = [
-        "Age", "Fare", "SibSp", "Parch", "FamilySize"
+        "Age", "Fare", "FamilySize"
     ]
 
     categorical_features = [

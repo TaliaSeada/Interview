@@ -2,10 +2,10 @@
   "random_state": 42,
   "n_splits": 10,
   "threshold": 0.5,
-  "best_fold": 9,
+  "best_fold": 1,
   "selection_metric": "f1",
-  "best_fold_f1": 0.8695652173913043,
-  "best_fold_accuracy": 0.898876404494382,
-  "mean_f1": 0.7879963446917044,
-  "mean_accuracy": 0.8394506866416979
+  "best_fold_f1": 0.8571428571428571,
+  "best_fold_accuracy": 0.8888888888888888,
+  "mean_f1": 0.7945816475318443,
+  "mean_accuracy": 0.8428214731585518
 }
