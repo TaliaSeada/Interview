@@ -9,10 +9,16 @@ First clone the project
 ```bash
 git clone https://github.com/TaliaSeada/Interview.git
 cd Interviw
+```
 
+Then create an environment:
+```bash
 python3.12 -m venv .venv
 source .venv/bin/activate
+```
 
+And download all requerments:
+```bash
 pip install -r requirements.txt
 ```
 
@@ -83,5 +89,6 @@ The project is split into three main parts: exploratory analysis in `EDA.ipynb`,
 The training script uses a reproducible PyTorch binary classifier for Titanic survival prediction. Feature engineering is kept in code so the same transformations can be reused at training and inference time: missing age values are filled by `Sex` and `Pclass` groups, passenger title and family size are extracted, and a `HasCabin` indicator is added. Numerical features are imputed and scaled, categorical features are imputed and one-hot encoded, and already numeric categorical indicators such as `Pclass` and `HasCabin` are passed through without scaling.
 
 Model evaluation uses stratified 10-fold cross-validation to preserve the survival class ratio in every fold. I chose 10 fold instead of the 5 fold usually used because I wanted a ration of 10/90% since I do not have alot of training data and I am using a neural network. The script saves the best fold model weights, fitted preprocessor, fold metrics, out-of-fold predictions, and metadata under `model/`.
+When building the model, I used few different architectures and compared their results - then chose the one that produced the highest results.
 
 The Streamlit UI is intentionally split into two apps. `validation_app.py` presents the saved validation results from training, while `inference_app.py` loads the trained model and preprocessor from disk, accepts a CSV path, runs inference, and shows predictions plus evaluation metrics when labels are available.

@@ -44,6 +44,16 @@ VAL_BATCH_SIZE = 64
 
 
 def set_seed(seed=RANDOM_STATE):
+    """
+    Set all available random seeds used by the training script.
+
+    The function configures Python, NumPy, and PyTorch randomness so fold
+    splits, model initialization, and shuffled mini-batches are reproducible
+    across runs where the underlying libraries support deterministic behavior.
+
+    Args:
+        seed: Integer seed value shared across the training pipeline.
+    """
     os.environ["PYTHONHASHSEED"] = str(seed)
     os.environ.setdefault("LOKY_MAX_CPU_COUNT", str(os.cpu_count() or 1))
     random.seed(seed)
@@ -53,21 +63,58 @@ def set_seed(seed=RANDOM_STATE):
 
 
 class TitanicDataset(Dataset):
+    """PyTorch dataset that serves preprocessed Titanic features and labels."""
+
     def __init__(self, X, y):
+        """
+        Convert feature and label arrays into tensors for model training.
+
+        Args:
+            X: Preprocessed feature matrix with one row per passenger.
+            y: Binary survival labels as a pandas object or array-like values.
+        """
         self.X = torch.tensor(X, dtype=torch.float32)
         if hasattr(y, "to_numpy"):
             y = y.to_numpy()
         self.y = torch.tensor(y, dtype=torch.float32).view(-1, 1)
 
     def __len__(self):
+        """
+        Return the number of passenger examples in the dataset.
+
+        Returns:
+            Number of rows available for batching.
+        """
         return len(self.X)
-    
+
     def __getitem__(self, idx):
+        """
+        Return one feature-label pair by row index.
+
+        Args:
+            idx: Integer position requested by a PyTorch DataLoader.
+
+        Returns:
+            Tuple containing the feature tensor and matching label tensor.
+        """
         return self.X[idx], self.y[idx]
-        
+
 
 class TitanicModel(nn.Module):
+    """Feed-forward binary classifier for Titanic survival prediction."""
+
     def __init__(self, input_dim):
+        """
+        Build the neural network architecture used for each CV fold.
+
+        The network has three hidden layers with 64, 32, and 16 units. Each
+        hidden layer uses batch normalization, ReLU activation, and dropout for
+        regularization. The final layer returns one logit for binary
+        classification.
+
+        Args:
+            input_dim: Number of columns produced by the fitted preprocessor.
+        """
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, 64),
@@ -89,10 +136,33 @@ class TitanicModel(nn.Module):
         )
 
     def forward(self, x):
+        """
+        Run a forward pass through the classifier.
+
+        Args:
+            x: Batch of preprocessed passenger features.
+
+        Returns:
+            Raw logits with shape ``(batch_size, 1)``.
+        """
         return self.net(x)
 
 
 def feature_engineering(df):
+    """
+    Create model features from the raw Titanic dataframe.
+
+    The transformation fills missing ages by ``Sex`` and ``Pclass`` groups,
+    creates cabin, title, and family-size features, fills missing embarked
+    values, and removes raw identifier/text columns that are not passed into
+    the sklearn preprocessor.
+
+    Args:
+        df: Raw Titanic rows containing the Kaggle competition columns.
+
+    Returns:
+        A dataframe with engineered columns ready for ``build_preprocessor``.
+    """
     df = df.copy()
     # A more sophisticated approach could use passenger titles extracted from names.
     # However, to keep preprocessing simple and interpretable, age was imputed using demographic groups defined by Sex and Pclass.
@@ -116,7 +186,15 @@ def feature_engineering(df):
 
     return df
 
+
 def download_titanic():
+    """
+    Download and extract the Titanic Kaggle dataset when local data is absent.
+
+    The function exits early if ``data/train.csv`` already exists. Otherwise,
+    it expects the Kaggle CLI to be installed and authenticated, downloads the
+    competition archive into ``data/``, and extracts the CSV files there.
+    """
     if os.path.exists("data/train.csv"):
         return
 
@@ -132,7 +210,19 @@ def download_titanic():
     ) as zip_ref:
         zip_ref.extractall("data/")
 
+
 def build_preprocessor():
+    """
+    Build the sklearn preprocessing pipeline for engineered Titanic features.
+
+    Numeric features are standardized, categorical features
+    are one-hot encoded, and already numeric
+    categorical indicators are passed through unchanged.
+
+    Returns:
+        A ``ColumnTransformer`` that can be fitted on train folds and reused for
+        validation or inference data.
+    """
     numeric_features = [
         "Age", "Fare", "FamilySize"
     ]
@@ -146,12 +236,10 @@ def build_preprocessor():
     ]
 
     numeric_pipeline = Pipeline([
-        ("imputer", SimpleImputer(strategy="median")),
         ("scaler", StandardScaler())
     ])
 
     categorical_pipeline = Pipeline([
-        ("imputer", SimpleImputer(strategy="most_frequent")),
         ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
     ])
 
@@ -163,6 +251,15 @@ def build_preprocessor():
 
 
 def clone_state_dict(model):
+    """
+    Copy a model state dictionary independently of the live model parameters.
+
+    Args:
+        model: PyTorch model whose weights should be snapshotted.
+
+    Returns:
+        A CPU-based clone of each tensor in ``model.state_dict()``.
+    """
     return {
         key: value.detach().cpu().clone()
         for key, value in model.state_dict().items()
@@ -170,6 +267,17 @@ def clone_state_dict(model):
 
 
 def predict_probabilities(model, X_processed):
+    """
+    Generate survival probabilities for preprocessed feature rows.
+
+    Args:
+        model: Trained ``TitanicModel`` instance.
+        X_processed: Feature matrix already transformed by the fitted
+            preprocessor.
+
+    Returns:
+        One-dimensional NumPy array of probabilities for the positive class.
+    """
     model.eval()
     X_tensor = torch.tensor(X_processed, dtype=torch.float32)
 
@@ -181,6 +289,17 @@ def predict_probabilities(model, X_processed):
 
 
 def evaluate_predictions(y_true, probabilities):
+    """
+    Evaluate probability outputs at the configured decision threshold.
+
+    Args:
+        y_true: Ground-truth binary survival labels.
+        probabilities: Predicted survival probabilities.
+
+    Returns:
+        Dictionary containing accuracy, precision, recall, F1, and the binary
+        predictions used to compute those metrics.
+    """
     predictions = (probabilities >= THRESHOLD).astype(int)
 
     return {
@@ -192,19 +311,33 @@ def evaluate_predictions(y_true, probabilities):
     }
 
 
-def train_one_fold(
-    fold,
-    X_train_raw,
-    y_train,
-    X_val_raw,
-    y_val,
-):
+def train_one_fold(fold, X_train_raw, y_train, X_val_raw, y_val):
+    """
+    Train and evaluate one stratified cross-validation fold.
+
+    The fold owns its fitted feature engineering preprocessor and model. It
+    trains with early stopping on validation accuracy, reloads the best epoch,
+    computes validation probabilities and metrics, and returns the artifacts
+    needed for fold reporting and best-fold selection.
+
+    Args:
+        fold: One-based fold number for logging and result records.
+        X_train_raw: Raw passenger rows for the fold training split.
+        y_train: Training labels aligned to ``X_train_raw``.
+        X_val_raw: Raw passenger rows for the fold validation split.
+        y_val: Validation labels aligned to ``X_val_raw``.
+
+    Returns:
+        Tuple of fold metrics, validation prediction rows, trained model, and
+        fitted preprocessor.
+    """
     set_seed()
 
     print("="*70)
     print(f"Fold {fold}/{N_SPLITS}")
     print("="*70)
 
+    # we do this seperatly to prevent data leakage in age calculation
     X_train = feature_engineering(X_train_raw)
     X_val = feature_engineering(X_val_raw)
 
@@ -232,13 +365,12 @@ def train_one_fold(
     print("Validation size: ", X_val_processed.shape )
 
     if drop_last_train_batch:
-        print(
-            "Dropping the final 1-row training batch so BatchNorm can "
-            "compute batch statistics."
-        )
+        print("Dropping the final 1-row training batch so BatchNorm can compute batch statistics.")
 
     model = TitanicModel(input_dim=X_train_processed.shape[1])
-
+    print(model)
+    
+    # binary cross entropy with sigmoid
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
@@ -327,6 +459,16 @@ def train_one_fold(
 
 
 def summarize_cv_results(cv_results):
+    """
+    Compute mean and standard deviation for core CV metrics.
+
+    Args:
+        cv_results: Dataframe with one row per fold and metric columns.
+
+    Returns:
+        Dictionary with ``mean_*`` and ``std_*`` entries for accuracy,
+        precision, recall, and F1.
+    """
     metrics = ["accuracy", "precision", "recall", "f1"]
     summary = {}
 
@@ -338,6 +480,17 @@ def summarize_cv_results(cv_results):
 
 
 def run_cross_validation(df):
+    """
+    Run stratified k-fold training and collect all model artifacts.
+
+    Args:
+        df: Titanic training dataframe containing the ``Survived`` target.
+
+    Returns:
+        Dictionary with aggregate summary metrics, per-fold metrics,
+        out-of-fold predictions, the best model, its fitted preprocessor, and
+        the selected best-fold result.
+    """
     print("="*70)
     print("Training TitanicModel")
     print("="*70)
@@ -400,6 +553,14 @@ def run_cross_validation(df):
 
 
 def save_training_outputs(training_run, output_dir="model"):
+    """
+    Persist cross-validation results, best-fold artifacts, and metadata.
+
+    Args:
+        training_run: Output dictionary produced by ``run_cross_validation``.
+        output_dir: Directory where CSV reports, model weights, preprocessor,
+            and metadata JSON should be written.
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     cv_results = training_run["cv_results"]
@@ -449,6 +610,13 @@ def save_training_outputs(training_run, output_dir="model"):
 
 
 def print_overall_report(cv_predictions):
+    """
+    Print an overall out-of-fold classification report.
+
+    Args:
+        cv_predictions: Dataframe containing ``actual`` and ``predicted``
+            columns for all validation rows across folds.
+    """
     y_true = cv_predictions["actual"]
     y_pred = cv_predictions["predicted"]
 
@@ -469,11 +637,18 @@ def print_overall_report(cv_predictions):
 
 
 def main():
+    """
+    Execute the full training workflow from data loading to artifact saving.
+
+    The script loads the local Titanic training CSV, runs stratified
+    cross-validation, and writes the best fold model, fitted preprocessor,
+    fold metrics, out-of-fold predictions, and metadata under ``model/``.
+    """
     set_seed()
 
     print("="*70)
     print("Loading data..")
-    # download_titanic()
+    download_titanic()
     df = pd.read_csv('data/train.csv')
     print(df.head())
     print("="*70)

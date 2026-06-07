@@ -29,16 +29,44 @@ METADATA_PATH = Path("model/cv_metadata.json")
 
 @st.cache_data
 def load_data(data_path):
+    """
+    Load the original Titanic training dataset for row-level validation views.
+
+    Args:
+        data_path: Path to the CSV file containing the raw Titanic rows.
+
+    Returns:
+        Dataframe loaded from the provided CSV path.
+    """
     return pd.read_csv(data_path)
 
 
 @st.cache_data
 def load_cv_results(path):
+    """
+    Load per-fold cross-validation metrics saved by the training script.
+
+    Args:
+        path: Path to ``cv_results.csv``.
+
+    Returns:
+        Dataframe with one row per fold and the recorded metrics.
+    """
     return pd.read_csv(path)
 
 
 @st.cache_data
 def load_cv_predictions(path):
+    """
+    Load out-of-fold validation predictions and normalize key column types.
+
+    Args:
+        path: Path to ``cv_predictions.csv``.
+
+    Returns:
+        Dataframe containing fold ids, source row indexes, labels, predictions,
+        and survival probabilities.
+    """
     predictions = pd.read_csv(path)
     predictions["fold"] = predictions["fold"].astype(int)
     predictions["row_index"] = predictions["row_index"].astype(int)
@@ -48,11 +76,30 @@ def load_cv_predictions(path):
 
 @st.cache_data
 def load_metadata(path):
+    """
+    Load cross-validation metadata saved alongside model artifacts.
+
+    Args:
+        path: Path to ``cv_metadata.json``.
+
+    Returns:
+        Dictionary of run settings and best-fold summary values.
+    """
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def apply_threshold(cv_predictions, threshold):
+    """
+    Recompute binary predictions from saved probabilities at a chosen threshold.
+
+    Args:
+        cv_predictions: Out-of-fold prediction dataframe.
+        threshold: Survival probability cutoff for predicting class ``1``.
+
+    Returns:
+        Copy of ``cv_predictions`` with an updated ``predicted`` column.
+    """
     predictions = cv_predictions.copy()
     predictions["predicted"] = (
         predictions["survival_probability"] >= threshold
@@ -61,6 +108,16 @@ def apply_threshold(cv_predictions, threshold):
 
 
 def metric_summary(y_true, y_pred):
+    """
+    Calculate the validation metrics displayed in the Streamlit app.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        y_pred: Binary predictions after applying the decision threshold.
+
+    Returns:
+        Dictionary containing accuracy, precision, recall, and F1.
+    """
     return {
         "Accuracy": accuracy_score(y_true, y_pred),
         "Precision": precision_score(y_true, y_pred, zero_division=0),
@@ -70,6 +127,16 @@ def metric_summary(y_true, y_pred):
 
 
 def labeled_confusion_matrix(y_true, y_pred):
+    """
+    Build a confusion matrix dataframe with human-readable class labels.
+
+    Args:
+        y_true: Ground-truth binary labels.
+        y_pred: Binary predictions.
+
+    Returns:
+        Two-by-two dataframe indexed and labeled with Titanic survival classes.
+    """
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
 
     return pd.DataFrame(
@@ -80,12 +147,24 @@ def labeled_confusion_matrix(y_true, y_pred):
 
 
 def show_metrics(metrics):
+    """
+    Render metric values as four Streamlit metric cards.
+
+    Args:
+        metrics: Mapping from metric names to numeric values.
+    """
     cols = st.columns(4)
     for col, (name, value) in zip(cols, metrics.items()):
         col.metric(name, f"{value:.3f}")
 
 
 def show_run_settings(metadata):
+    """
+    Render the key training run settings used for the validation report.
+
+    Args:
+        metadata: Dictionary loaded from ``cv_metadata.json``.
+    """
     settings = {
         "Best fold": metadata.get("best_fold", "Unknown"),
         "CV folds": metadata.get("n_splits", N_SPLITS),
@@ -98,6 +177,15 @@ def show_run_settings(metadata):
 
 
 def plot_confusion_matrix(cm_df):
+    """
+    Create a heatmap figure for a labeled confusion matrix dataframe.
+
+    Args:
+        cm_df: Confusion matrix dataframe from ``labeled_confusion_matrix``.
+
+    Returns:
+        Matplotlib figure ready to display with ``st.pyplot``.
+    """
     fig, ax = plt.subplots(figsize=(5.5, 4.2))
     sns.heatmap(cm_df, annot=True, fmt="d", cmap="Blues", cbar=False, ax=ax)
     ax.set_xlabel("Predicted")
@@ -106,6 +194,13 @@ def plot_confusion_matrix(cm_df):
 
 
 def main():
+    """
+    Run the Streamlit validation report application.
+
+    The app loads saved cross-validation artifacts, lets the user adjust the
+    decision threshold, and displays overall, fold-level, and row-level
+    validation results.
+    """
     st.title("Titanic Validation Report")
     st.caption(f"Stratified {N_SPLITS}-fold cross-validation report")
 

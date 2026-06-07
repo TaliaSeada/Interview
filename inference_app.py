@@ -28,16 +28,44 @@ LABEL_MAP = {0: "Not Survived", 1: "Survived"}
 
 @st.cache_data
 def load_dataset(data_path):
+    """
+    Load the CSV selected in the inference sidebar.
+
+    Args:
+        data_path: Path to the dataset CSV.
+
+    Returns:
+        Dataframe containing rows to score, with optional ``Survived`` labels.
+    """
     return pd.read_csv(data_path)
 
 
 @st.cache_resource
 def load_preprocessor(preprocessor_path):
+    """
+    Load the fitted sklearn preprocessor saved during training.
+
+    Args:
+        preprocessor_path: Path to ``preprocessor.pkl``.
+
+    Returns:
+        Fitted preprocessing object used to transform engineered features.
+    """
     return joblib.load(preprocessor_path)
 
 
 @st.cache_resource
 def load_model(model_path, input_dim):
+    """
+    Reconstruct the Titanic model and load trained weights.
+
+    Args:
+        model_path: Path to the saved PyTorch state dictionary.
+        input_dim: Number of transformed input features expected by the model.
+
+    Returns:
+        ``TitanicModel`` set to evaluation mode on CPU.
+    """
     model = TitanicModel(input_dim=input_dim)
     state_dict = torch.load(model_path, map_location="cpu")
     model.load_state_dict(state_dict)
@@ -46,6 +74,16 @@ def load_model(model_path, input_dim):
 
 
 def predict_probabilities(model, X_processed):
+    """
+    Generate survival probabilities for transformed inference rows.
+
+    Args:
+        model: Loaded ``TitanicModel`` instance.
+        X_processed: Feature matrix produced by the fitted preprocessor.
+
+    Returns:
+        One-dimensional NumPy array of survival probabilities.
+    """
     X_tensor = torch.tensor(X_processed, dtype=torch.float32)
 
     with torch.no_grad():
@@ -56,10 +94,30 @@ def predict_probabilities(model, X_processed):
 
 
 def apply_threshold(probabilities, threshold):
+    """
+    Convert survival probabilities into binary predictions.
+
+    Args:
+        probabilities: Predicted probability for class ``1``.
+        threshold: Probability cutoff used to mark a passenger as survived.
+
+    Returns:
+        NumPy array of integer predictions.
+    """
     return (probabilities >= threshold).astype(int)
 
 
 def metric_summary(y_true, y_pred):
+    """
+    Calculate evaluation metrics when the input CSV includes labels.
+
+    Args:
+        y_true: Ground-truth binary survival labels.
+        y_pred: Binary predictions produced by the current threshold.
+
+    Returns:
+        Dictionary containing accuracy, precision, recall, and F1.
+    """
     return {
         "Accuracy": accuracy_score(y_true, y_pred),
         "Precision": precision_score(y_true, y_pred, zero_division=0),
@@ -69,6 +127,16 @@ def metric_summary(y_true, y_pred):
 
 
 def labeled_confusion_matrix(y_true, y_pred):
+    """
+    Build a confusion matrix dataframe with readable survival class labels.
+
+    Args:
+        y_true: Ground-truth binary survival labels.
+        y_pred: Binary predictions.
+
+    Returns:
+        Two-by-two dataframe indexed and labeled with class names.
+    """
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
 
     return pd.DataFrame(
@@ -79,12 +147,28 @@ def labeled_confusion_matrix(y_true, y_pred):
 
 
 def show_metrics(metrics):
+    """
+    Render four evaluation metrics in Streamlit columns.
+
+    Args:
+        metrics: Mapping from metric names to numeric values.
+    """
     cols = st.columns(4)
     for col, (name, value) in zip(cols, metrics.items()):
         col.metric(name, f"{value:.3f}")
 
 
 def prediction_summary(results):
+    """
+    Summarize the scored inference results for the top-level metric row.
+
+    Args:
+        results: Prediction table returned by ``build_prediction_table``.
+
+    Returns:
+        Dictionary with row count, class counts, and average survival
+        probability.
+    """
     survived_count = int((results["Predicted"] == 1).sum())
     not_survived_count = int((results["Predicted"] == 0).sum())
     total_rows = len(results)
@@ -98,6 +182,12 @@ def prediction_summary(results):
 
 
 def show_prediction_summary(summary):
+    """
+    Render aggregate inference counts and mean probability in Streamlit.
+
+    Args:
+        summary: Dictionary produced by ``prediction_summary``.
+    """
     cols = st.columns(4)
     cols[0].metric("Rows scored", f"{summary['Rows scored']:,}")
     cols[1].metric("Predicted survived", f"{summary['Predicted survived']:,}")
@@ -109,6 +199,15 @@ def show_prediction_summary(summary):
 
 
 def plot_confusion_matrix(cm_df):
+    """
+    Create a heatmap figure for a labeled confusion matrix dataframe.
+
+    Args:
+        cm_df: Confusion matrix dataframe from ``labeled_confusion_matrix``.
+
+    Returns:
+        Matplotlib figure ready to display with ``st.pyplot``.
+    """
     fig, ax = plt.subplots(figsize=(5.5, 4.2))
     sns.heatmap(cm_df, annot=True, fmt="d", cmap="Blues", cbar=False, ax=ax)
     ax.set_xlabel("Predicted")
@@ -117,6 +216,18 @@ def plot_confusion_matrix(cm_df):
 
 
 def build_prediction_table(raw_df, probabilities, predictions):
+    """
+    Add model outputs to the input rows and arrange important columns first.
+
+    Args:
+        raw_df: Original dataset supplied for inference.
+        probabilities: Survival probabilities produced by the model.
+        predictions: Binary predictions produced from those probabilities.
+
+    Returns:
+        Dataframe containing the original rows plus probability, prediction,
+        and readable prediction label columns.
+    """
     results = raw_df.copy()
     results["Survival Probability"] = probabilities
     results["Predicted"] = predictions
@@ -141,6 +252,18 @@ def build_prediction_table(raw_df, probabilities, predictions):
 
 
 def run_inference(raw_df, model_path, preprocessor_path, threshold):
+    """
+    Run the full preprocessing and model scoring workflow for one dataframe.
+
+    Args:
+        raw_df: Input dataframe, optionally including a ``Survived`` label.
+        model_path: Path to saved PyTorch model weights.
+        preprocessor_path: Path to the fitted sklearn preprocessor.
+        threshold: Decision threshold for converting probabilities to labels.
+
+    Returns:
+        Prediction table with original columns and model output columns.
+    """
     has_labels = "Survived" in raw_df.columns
     X_raw = raw_df.drop(columns=["Survived"]) if has_labels else raw_df.copy()
 
@@ -157,6 +280,13 @@ def run_inference(raw_df, model_path, preprocessor_path, threshold):
 
 
 def main():
+    """
+    Run the Streamlit inference application.
+
+    The app loads user-selected dataset, model, and preprocessor paths, scores
+    the dataset when requested, and displays predictions plus evaluation
+    metrics when labels are available.
+    """
     st.title("Titanic Inference")
     st.caption("Load a CSV and score it with the trained model")
 
